@@ -1,0 +1,38 @@
+{
+  "name": "hard-cache-webpack-plugin",
+  "version": "0.0.1",
+  "description": "webpack dist cache for loaders",
+  "main": "index.js",
+  "scripts": {
+    "test": "webpack"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laomu1988/hard-cache-webpack-plugin.git"
+  },
+  "keywords": [
+    "conditional-loader",
+    "ifdef-loader",
+    "webpack"
+  ],
+  "author": "laomu1988@qq.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/laomu1988/hard-cache-webpack-plugin/issues"
+  },
+  "homepage": "https://github.com/laomu1988/hard-cache-webpack-plugin#readme",
+  "devDependencies": {
+    "babel-core": "^6.26.3",
+    "babel-loader": "^7.1.5",
+    "babel-preset-es2015": "^6.24.1",
+    "css-loader": "^1.0.0",
+    "less": "^3.8.1",
+    "less-loader": "^4.1.0",
+    "postcss-loader": "^3.0.0",
+    "webpack": "^3.11.0"
+  },
+  "dependencies": {
+    "loader-utils": "^1.1.0",
+    "md5": "^2.2.1"
+  }
+}
