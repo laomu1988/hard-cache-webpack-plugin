@@ -23,9 +23,18 @@ module.exports = {
             {
                 test: /\.less$/,
                 use: [
-                    {loader: 'css-loader', options: {sourceMap: true}},
-                    {loader: 'postcss-loader', options: {sourceMap: true}},
+                    {loader: 'style-loader'},
+                    {loader: 'css-loader'},
+                    {loader: 'postcss-loader'},
                     {loader: 'less-loader'}
+                ]
+            },
+            {
+                test: /\.css$/,
+                use: [
+                    {loader: 'style-loader'},
+                    {loader: 'css-loader'},
+                    {loader: 'postcss-loader'},
                 ]
             }
         ]

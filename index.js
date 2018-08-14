@@ -30,49 +30,67 @@ function wrap(options = {}) {
 function wrapReq(reqMethod, options) {
     return function() {
         // console.log('reqMethod', arguments)
-        const ret = reqMethod.apply(this, arguments)
+        const loader = reqMethod.apply(this, arguments)
         const modulePath = arguments[0]
         // console.log('modulePath:', modulePath)
         if (modulePath.indexOf('-loader') >= 0) {
-            console.log('cache-loader:', modulePath)
-            return cacheLoader(ret, options, modulePath.match(/[\w\-]*-loader/)[0])
+            const moduleName = modulePath.match(/[\w\-]*-loader/)[0]
+            if (moduleName && moduleName.indexOf('plugin') < 0) {
+                console.log('cache-loader:', modulePath)
+                let newLoader = {}
+                if (typeof loader === 'function') {
+                    newLoader = cacheLoader(loader, options, moduleName)
+                }
+                let attrs = ['normal', 'pitch', 'default', 'raw']
+                attrs.forEach(attr => {
+                    if (loader[attr]) {
+                        newLoader[attr] = loader[attr]
+                    }
+                })
+                return newLoader
+            }
         }
-        return ret
+        return loader
     }
 }
 
 function cacheLoader(loader, options, loaderName) {
     const cache_dir = options.cache_dir
     return function(source) {
-        // console.log('loader:', arguments)
+        console.log('loader:', loaderName, this.resourcePath)
+        const me = this
         const options = loaderUtils.getOptions(this)
         const _callback = this.callback
         const _async = this.async
         const _cacheable = this.cacheable
         let cacheable = true
-        const flag = md5(loaderName + JSON.stringify(options)) + md5(source)
-        const path = md5(this.resourcePath)
-        var called = false
+        const flag = md5(loaderName + JSON.stringify(options)) + md5(source + '')
+        const path = md5(this.resourcePath + '')
         this.callback = function(err, content, map, meta) {
-            // console.log('callback', err, content, map, meta)
-            if (called) {
-                return
-            }
+            console.log('callback', loaderName, me.getDependencies(), me.getContextDependencies())
             if (!err && cacheable) {
-                called = true
                 loaded[path] = [null, content, map, meta]
                 fs.writeFile(cache_dir + path, content, function(err) {
                     if (err) {
                         console.log('write file error:', err)
                     }
                 })
-                cache[path] = {flag, map, meta, isBuffer: Buffer.isBuffer(content)}
+                cache[path] = {
+                    path: me.resourcePath,
+                    loader: loaderName,
+                    dependencies: me.getDependencies(),
+                    contextDependencies: me.getContextDependencies(),
+                    flag,
+                    map,
+                    meta,
+                    isBuffer: Buffer.isBuffer(content)
+                }
                 updateCache()
             }
-            _callback.apply(this, arguments)
+            _callback.apply(me, arguments)
         }
         this.async = function() {
-            _async.call(this)
+            _async.apply(me, arguments)
             return this.callback
         }
         this.cacheable = function(flag) {
@@ -81,21 +99,38 @@ function cacheLoader(loader, options, loaderName) {
                 _cacheable(false)
             }
         }
-        if (loaded[path]) {
-            this.callback.apply(this, loaded[path])
-            return
+        me.clearDependencies()
+        if (loaded[path] && cache[path] && flag === cache[path].flag ) {
+            if (cache[path].dependencies) {
+                cache[path].dependencies.forEach(file => this.addDependency(file))
+            }
+            if (cache[path].contextDependencies) {
+                cache[path].contextDependencies.forEach(content => this.addContextDependency(content))
+            }
+            return this.callback.apply(me, loaded[path])
         }
         else if(cache[path] && flag === cache[path].flag && fs.existsSync(cache_dir + path)) {
             let content = cache[path].isBuffer ? fs.readFileSync(cache_dir + path) : fs.readFileSync(cache_dir + path, 'utf8')
+            if (cache[path].dependencies) {
+                cache[path].dependencies.forEach(file => this.addDependency(file))
+            }
+            if (cache[path].contextDependencies) {
+                cache[path].contextDependencies.forEach(content => this.addContextDependency(content))
+            }
             loaded[path] = [null, content, cache[path].map, cache[path].meta]
-            this.callback.apply(this, loaded[path])
+            return this.callback.apply(me, loaded[path])
         }
         else {
-            let content = loader.apply(this, arguments)
-            if (content) {
+            let content = loader.apply(me, arguments)
+            if (content && typeof content.then !== 'function') {
                 this.callback(null, content)
-                return content
             }
+            if (content && content.catch) {
+                content.catch(err => {
+                    console.error('catchError', loaderName, err)
+                })
+            }
+            return content
         }
     }
 }
@@ -108,7 +143,7 @@ function updateCache() {
                 console.log('write file error:', err)
             }
         })
-    }, 10)
+    }, 50)
 }
 
 module.exports = wrap
