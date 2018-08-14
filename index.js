@@ -3,43 +3,48 @@
  * @param {*} source 
  */
 const loaderUtils = require('loader-utils')
-const md5 = require('md5')
+const hash = require('hash-sum')
 const fs = require('fs')
-var cache = {}
+const Cache = {}
+const Options = {}
 const loaded = {}
-var cacheTimer = null
-function wrap(options = {}) {
-    options = options || {}
-    options.cache_dir = __dirname + '/.cache/'
-    var Module = require('module')
-    Module.prototype.require = wrapReq(Module.prototype.require, options)
-    if (fs.existsSync(options.cache_dir + '/cache.json')) {
-        try {
-            cache = require(options.cache_dir + '/cache.json')
-        }
-        catch(err) {
-            console.log('read cache file error', options.cache_dir + '/cache.json')
-        }
-    }
-    cache.cache_dir = options.cache_dir
-    if (!fs.existsSync(cache.cache_dir)) {
-        fs.mkdirSync(cache.cache_dir)
-    }
+const defaultOptions = {
+    cache_dir: __dirname + '/.cache/', // 缓存文件夹
+    timeout: 48 * 60 * 60 * 1000 // 超时时间
 }
 
-function wrapReq(reqMethod, options) {
+function wrap(options = {}) {
+    options = options || {}
+    options.cache_dir = options.cache_dir || __dirname + '/.cache/'
+    if (options.cache_dir[options.cache_dir.length - 1] !== '/') {
+        options.cache_dir += '/'
+    }
+    options.cache_file = options.cache_dir + '_cache.json'
+    Object.assign(Options, defaultOptions, options)
+    readCache()
+    Cache.options = options
+    Cache.cache_dir = options.cache_dir
+    if (!fs.existsSync(Cache.cache_dir)) {
+        fs.mkdirSync(Cache.cache_dir)
+    }
+
+    var Module = require('module')
+    Module.prototype.require = wrapReq(Module.prototype.require)
+}
+
+function wrapReq(reqMethod) {
     return function() {
         // console.log('reqMethod', arguments)
         const loader = reqMethod.apply(this, arguments)
         const modulePath = arguments[0]
         // console.log('modulePath:', modulePath)
         if (modulePath.indexOf('-loader') >= 0) {
-            const moduleName = modulePath.match(/[\w\-]*-loader/)[0]
+            const moduleName = modulePath.match(/[\w-]*-loader/)[0]
             if (moduleName && moduleName.indexOf('plugin') < 0) {
                 console.log('cache-loader:', modulePath)
                 let newLoader = {}
                 if (typeof loader === 'function') {
-                    newLoader = cacheLoader(loader, options, moduleName)
+                    newLoader = cacheLoader(loader, moduleName)
                 }
                 let attrs = ['normal', 'pitch', 'default', 'raw']
                 attrs.forEach(attr => {
@@ -54,8 +59,7 @@ function wrapReq(reqMethod, options) {
     }
 }
 
-function cacheLoader(loader, options, loaderName) {
-    const cache_dir = options.cache_dir
+function cacheLoader(loader, loaderName) {
     return function(source) {
         console.log('loader:', loaderName, this.resourcePath)
         const me = this
@@ -64,18 +68,24 @@ function cacheLoader(loader, options, loaderName) {
         const _async = this.async
         const _cacheable = this.cacheable
         let cacheable = true
-        const flag = md5(loaderName + JSON.stringify(options)) + md5(source + '')
-        const path = md5(this.resourcePath + '')
+        const flag = hash(options) + hash(source)
+        const path = loaderName  + '-' + hash(this.resourcePath)
+        let cache = Cache[path]
+        if (cache) {
+            if (cache.flag !== flag || Date.now() - cache.flag > Options.timeout) {
+                cache = Cache[path] = undefined
+            }
+        }
         this.callback = function(err, content, map, meta) {
             console.log('callback', loaderName, me.getDependencies(), me.getContextDependencies())
-            if (!err && cacheable) {
+            if (!err && cacheable && (!cache || cache.content !== content)) {
                 loaded[path] = [null, content, map, meta]
-                fs.writeFile(cache_dir + path, content, function(err) {
+                fs.writeFile(Options.cache_dir + path, content, function(err) {
                     if (err) {
                         console.log('write file error:', err)
                     }
                 })
-                cache[path] = {
+                Cache[path] = {
                     path: me.resourcePath,
                     loader: loaderName,
                     dependencies: me.getDependencies(),
@@ -100,24 +110,24 @@ function cacheLoader(loader, options, loaderName) {
             }
         }
         me.clearDependencies()
-        if (loaded[path] && cache[path] && flag === cache[path].flag ) {
-            if (cache[path].dependencies) {
-                cache[path].dependencies.forEach(file => this.addDependency(file))
+        if (loaded[path] && cache ) {
+            if (cache.dependencies) {
+                cache.dependencies.forEach(file => this.addDependency(file))
             }
-            if (cache[path].contextDependencies) {
-                cache[path].contextDependencies.forEach(content => this.addContextDependency(content))
+            if (cache.contextDependencies) {
+                cache.contextDependencies.forEach(content => this.addContextDependency(content))
             }
             return this.callback.apply(me, loaded[path])
         }
-        else if(cache[path] && flag === cache[path].flag && fs.existsSync(cache_dir + path)) {
-            let content = cache[path].isBuffer ? fs.readFileSync(cache_dir + path) : fs.readFileSync(cache_dir + path, 'utf8')
-            if (cache[path].dependencies) {
-                cache[path].dependencies.forEach(file => this.addDependency(file))
+        else if(cache && fs.existsSync(Options.cache_dir + path)) {
+            let content = cache.isBuffer ? fs.readFileSync(Options.cache_dir + path) : fs.readFileSync(Options.cache_dir + path, 'utf8')
+            if (cache.dependencies) {
+                cache.dependencies.forEach(file => this.addDependency(file))
             }
-            if (cache[path].contextDependencies) {
-                cache[path].contextDependencies.forEach(content => this.addContextDependency(content))
+            if (cache.contextDependencies) {
+                cache.contextDependencies.forEach(content => this.addContextDependency(content))
             }
-            loaded[path] = [null, content, cache[path].map, cache[path].meta]
+            loaded[path] = [null, content, cache.map, cache.meta]
             return this.callback.apply(me, loaded[path])
         }
         else {
@@ -135,15 +145,28 @@ function cacheLoader(loader, options, loaderName) {
     }
 }
 
+var cacheTimer = null
 function updateCache() {
     clearTimeout(cacheTimer)
     cacheTimer = setTimeout(function() {
-        fs.writeFile(cache.cache_dir + 'cache.json', JSON.stringify(cache, null, 4), function(err) {
+        fs.writeFile(Options.cache_file, JSON.stringify(Cache, null, 4), function(err) {
             if (err) {
                 console.log('write file error:', err)
             }
         })
     }, 50)
+}
+
+function readCache() {
+    if (fs.existsSync(Options.cache_file)) {
+        try {
+            Object.assign(Cache, require(Options.cache_file))
+        }
+        catch(err) {
+            console.log('read cache file error', Options.cache_file)
+        }
+    }
+    return Cache
 }
 
 module.exports = wrap
