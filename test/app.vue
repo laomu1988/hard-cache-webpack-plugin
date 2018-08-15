@@ -19,6 +19,7 @@ export default Vue.extend({
 }
 .icon {
     background: url('./microphone.png') 100% 100%;
+    background-size: 100% 100%;
     display: inline-block;
     width: 20px;
     height: 20px;
