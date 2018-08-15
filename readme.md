@@ -9,9 +9,14 @@ const cache = require('hard-cache-webpack-plugin')
 cache(options)
 ```
 
+### options配置项
+* `cache_dir`: 缓存文件夹，默认`node_modules/hard-cache-webpack-plugin/.cache/`
+* `cache_file`: 缓存文件列表，默认`node_modules/hard-cache-webpack-plugin/.cache/_cache.json`
+* `timeout`: 缓存有效期,默认2天，单位ms（待处理）
+
 ## 处理事项
 * [ ] 超时文件需要清理
-* [ ] 文件过大时不能存入内存，否则可能会存在内存泄漏问题
+* [x] postcss-loader输出内容JSON转换失败处理
 * [ ] 如何快速算出文件hash，避免hash计算耗时
 * [ ] webpack的bitch如何缓存
 * [ ] webpack的plugin如何缓存
